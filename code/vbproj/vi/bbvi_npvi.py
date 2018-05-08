@@ -11,6 +11,7 @@ from vbproj.misc import mvn_diag_logpdf, mvn_diag_entropy
 
 from scipy.optimize import minimize
 import autograd.scipy.misc as scpm
+from time import time
 
 class NPVI(object):
 
@@ -26,7 +27,7 @@ class NPVI(object):
         # enforce minimium bandwidth to avoid numerical problems
         self.s2min = 1e-7
 
-    def run(self, theta, niter=10, tol=.0001, verbose=False):
+    def run(self, theta, niter=10, tol=.0001, verbose=False, path=""):
         """ runs NPV for ... iterations 
             mimics npv_run.m from Sam Gershman's original matlab code
 
@@ -55,6 +56,8 @@ class NPVI(object):
                 'gtol':1e-7, 'ftol':1e-7} #, 'factr':1e2}
         elbo_vals = np.zeros(niter)
 
+        timestamps = []
+        timestamps.append(time())
         for ii in xrange(niter):
             elbo_vals[ii] = self.mc_elbo(theta)
             print "iteration %d (elbo = %2.4f)" % (ii, elbo_vals[ii])
@@ -83,6 +86,12 @@ class NPVI(object):
             res = minimize(fun, x0=theta[:,-1], jac=gfun,
                                 method='L-BFGS-B', options=opts)
             theta = np.column_stack([mu, res.x])
+
+          #  mmd_samples = mogsamples(2000, theta)
+            if(ii % 5 == 0):
+                timestamps.append(time())
+                np.savez(path + '/iter' + str(ii) + "of" + str(niter)  + ".npz",
+                 timestamps=timestamps, mu=mu, sigma=np.exp(theta[:, -1]) + self.s2min, n_feval=self.lnpdf.counter)
 
             # calculate the approximate ELBO (L2)
             #if (ii > 1) and (np.abs(elbo_vals[ii] - elbo_vals[ii-1] < tol))
@@ -257,7 +266,6 @@ def make_lower_bound_MoGn(theta, n, s2min=1e-7):
 #    return lnqn
 
 
-from autograd.util import nd
 def numeric_hessian_diag(fun, th):
     D     = len(th)
     hdiag = np.zeros(D)
