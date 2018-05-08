@@ -1,3 +1,6 @@
+from os import sys, path
+sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__))))))
+
 """
 Script that runs the `frisk` and `baseball` models.  Saves inferences
 for separate, model-specific plotting scripts.
@@ -9,7 +12,10 @@ for separate, model-specific plotting scripts.
 import argparse, os
 parser = argparse.ArgumentParser(
     description="Run vboost, mcmc, and npvi on two hierarchical models")
-parser.add_argument('-model', type=str, default='frisk', help="frisk|baseball")
+parser.add_argument('-model', type=str, default='frisk', help="frisk|baseball|planarRobot")
+
+parser.add_argument('-progressDir', type=str, default='progress_dir', help="progress_dir")
+
 parser.add_argument('-vboost', action='store_true',
                     help='run vboost and save')
 parser.add_argument('-vboost_nsamps',  type=int, default=100,
@@ -41,9 +47,10 @@ from vbproj.gsmooth.smoothers import AdamFilter
 from vbproj.models import baseball, frisk
 from vbproj.vi.vboost.components import LRDComponent
 import cPickle as pickle
-
+from autograd.scipy.stats import multivariate_normal as normal_pdf
+from time import time
 # create output for fit VBoost model
-args.output = args.model + "_output"
+args.output = args.model + args.progressDir
 if not os.path.exists(args.output):
     os.makedirs(args.output)
 
@@ -58,11 +65,72 @@ def make_model(model_name):
         D           = baseball.D
         return lnpdf, D, None
     elif model_name == "frisk":
-        lnpdf, unpack, D, sdf, pnames = frisk.make_model_funs(precinct_type=1)
+        lnpdf_tmp, unpack, D, sdf, pnames = frisk.make_model_funs(precinct_type=1)
+        def lnpdf(th):
+            lnpdf.counter += len(np.atleast_2d(th))
+            return lnpdf_tmp(th)
+        lnpdf.counter = 0
         return lnpdf, D, pnames
+    elif model_name == "planarRobot_2":
+        from experiments.lnpdfs.create_target_lnpfs import build_target_likelihood_planar_autograd
+        lnpdf = build_target_likelihood_planar_autograd(2)[0]
+        return lnpdf, 2, None
+    elif model_name == "planarRobot_3":
+        from experiments.lnpdfs.create_target_lnpfs import build_target_likelihood_planar_autograd
+        lnpdf = build_target_likelihood_planar_autograd(3)[0]
+        return lnpdf, 3, None
+    elif model_name == "planarRobot_10":
+        from experiments.lnpdfs.create_target_lnpfs import build_target_likelihood_planar_autograd
+        lnpdf = build_target_likelihood_planar_autograd(10)[0]
+        return lnpdf, 10, None
+    elif model_name == "GMM_20":
+        from experiments.lnpdfs.create_target_lnpfs import build_GMM_lnpdf_autograd
+        [lnpdf, true_means, true_covs] = build_GMM_lnpdf_autograd(20,10)
+        np.savez(args.output+'target_gmm.npz', true_means=true_means, true_covs=true_covs)
+        return lnpdf, 20, None
+    elif model_name == "GMM_2":
+        from experiments.lnpdfs.create_target_lnpfs import build_GMM_lnpdf_autograd
+        [lnpdf, true_means, true_covs] = build_GMM_lnpdf_autograd(2,10)
+        np.savez(args.output+'target_gmm.npz', true_means=true_means, true_covs=true_covs)
+        return lnpdf, 2, None
+    elif model_name == "german_credit":
+        from experiments.lnpdfs.create_target_lnpfs import build_german_credit_lnpdf
+        lnpdf = build_german_credit_lnpdf(with_autograd=True)
+        return lnpdf, 25, None
+    elif model_name == "breast_cancer":
+        from experiments.lnpdfs.create_target_lnpfs import build_breast_cancer_lnpdf
+        lnpdf = build_breast_cancer_lnpdf(with_autograd=True)
+        return lnpdf, 31, None
+    elif model_name == "iono":
+        from experiments.lnpdfs.create_target_lnpfs import build_GPR_iono_with_grad_lnpdf
+        lnpdf_grad = build_GPR_iono_with_grad_lnpdf(remove_autograd=True)
+        def lnpdf(theta):
+            theta = np.atleast_2d(theta)
+            lnpdf.counter += len(theta)
+            output = []
+            for t in theta:
+                output.append(lnpdf_grad(t)[0])
+            return np.array(output)
+        lnpdf.counter = 0
+        return lnpdf, 34, None
 
 np.random.seed(args.seed)
 lnpdf, D, _ = make_model(args.model)
+# def lnpdf(theta):
+#     if theta.ndim == 1:
+#         lnpdf.counter+=1
+#     else:
+#         lnpdf.counter+=len(theta)
+#     return lnpdf_tmp(theta)
+# lnpdf.counter=0
+#
+# def dlnpdf(theta):
+#     if theta.ndim == 1:
+#         dlnpdf.counter+=1
+#     else:
+#         dlnpdf.counter+=len(theta)
+#     return lnpdf_tmp(theta)[1]
+# dlnpdf.counter=0
 
 #
 # print script args
@@ -80,11 +148,11 @@ if __name__=="__main__":
     print args
 
 # single component initialization
-def init_single_component(rank=0, niter=2000):
+def init_single_component(rank=0, niter=2000, samples_for_init_comp=1024):
     infobj = vi.LowRankMvnBBVI(lnpdf, D, r=rank, lnpdf_is_vectorized=True)
     elbo_grad = grad(infobj.elbo_mc)
     def mc_grad_fun(lam, t):
-        return -1.*elbo_grad(lam, n_samps=1024)
+        return -1.*elbo_grad(lam, n_samps=samples_for_init_comp)
 
     # initialize var params
     m0   = np.random.randn(D) * .01
@@ -97,41 +165,45 @@ def init_single_component(rank=0, niter=2000):
       lam0.copy(),
       save_grads = False,
       grad_filter = AdamFilter(),
-      fun = lambda lam, t: infobj.elbo_mc(lam, n_samps=1000),
+      fun = lambda lam, t: infobj.elbo_mc(lam, n_samps=100),
       callback=infobj.callback)
     mc_opt.run(num_iters=niter, step_size=.05)
     return mc_opt.params.copy(), infobj
 
-#def mfvi_init(niter=1000):
-#    mfvi = vi.DiagMvnBBVI(lnpdf, D, lnpdf_is_vectorized=True)
-#    elbo_grad = grad(mfvi.elbo_mc)
-#    def mc_grad_fun(lam, t):
-#        return -1.*elbo_grad(lam, n_samps=1024)
+def mfvi_init(niter=1000):
+    mfvi = vi.DiagMvnBBVI(lnpdf, D, lnpdf_is_vectorized=True)
+    elbo_grad = grad(mfvi.elbo_mc)
+    def mc_grad_fun(lam, t):
+        return -1.*elbo_grad(lam, n_samps=1024)
+
+    lam = np.random.randn(mfvi.num_variational_params) * .01
+    lam[D:] = -1.
+    mc_opt = FilteredOptimization( mc_grad_fun, lam.copy(),
+      save_grads  = False,
+      grad_filter = AdamFilter(),
+      fun         = lambda lam, t: mfvi.elbo_mc(lam, n_samps=1000),
+      callback    = lambda th, t, g: mfvi.callback(th, t, g, n_samps=1000))
+    mc_opt.run(num_iters=niter, step_size=.05)
+    return mc_opt.params.copy()
 #
-#    lam = np.random.randn(mfvi.num_variational_params) * .01
-#    lam[D:] = -1.
-#    mc_opt = FilteredOptimization( mc_grad_fun, lam.copy(),
-#      save_grads  = False,
-#      grad_filter = AdamFilter(),
-#      fun         = lambda lam, t: mfvi.elbo_mc(lam, n_samps=1000),
-#      callback    = lambda th, t, g: mfvi.callback(th, t, g, n_samps=1000))
-#    mc_opt.run(num_iters=niter, step_size=.05)
-#    return mc_opt.params.copy()
 #
-#
-#mfvi_params = mfvi_init()
-#lrd_params  = init_single_component(rank=0)
-#lrd_params  = init_single_component(rank=3)
+# mfvi_params = mfvi_init()
+# lrd_params  = init_single_component(rank=0)
+# lrd_params  = init_single_component(rank=3)
 
 ###########################
 # Variational Boosting    #
 ###########################
 
 if args.vboost:
-
+    timestamps = []
+    timestamps.append(time())
     # initialize a single component of appropriate rank and cache
-    vi_params, infobj = init_single_component(rank=args.rank)
+    initialization_iters = 500
+    initialization_samples = D
+    vi_params, infobj = init_single_component(rank=args.rank, niter=initialization_iters, samples_for_init_comp=initialization_samples)
     init_file = os.path.join(args.output, "initial_component-rank_%d.npy"%args.rank)
+    lnpdf.counter - initialization_iters * initialization_samples
     np.save(init_file, vi_params)
 
     # initialize LRD component (works with MixtureVI ...)
@@ -160,6 +232,8 @@ if args.vboost:
                                      use_max_sample=False)
         init_prob = np.max([init_prob, .5])
 
+        true_counter = lnpdf.counter
+        lnpdf.counter = 0
         # fit new component
         vbobj.fit_new_comp(init_comp = init_comp,
                            init_prob = init_prob,
@@ -170,6 +244,7 @@ if args.vboost:
                            fix_component_samples=True,
                            gradient_type="standard", #component_approx_static_rho",
                            break_condition='percent')
+        lnpdf.counter = true_counter + lnpdf.counter /2 # we don't count the evaluations by the progress callback
 
         # after all components are added, tune the weights of each comp
         comp_list = mog_bbvi.fit_mixture_weights(vbobj.comp_list, vbobj.lnpdf,
@@ -178,10 +253,12 @@ if args.vboost:
                                                 ax=None)
         vbobj.comp_list = comp_list
 
+        timestamps.append(time())
+        samples = vbobj.sample(2000)
+        np.savez(os.path.join(args.output,"vboost_comp_%d.npz"  %  k), samples, timestamps, lnpdf.counter)
         # save output here
         vb_outfile = os.path.join(args.output,
-                                  "vboost_%d-comp_%d-rank.pkl" % \
-                                  (k, vbobj.comp_list[0][1].rank))
+                                  "vboost_comp_%d.pkl" % k)
         lam_list = [(p, c.lam) for p, c in vbobj.comp_list]
         with open(vb_outfile, 'wb') as f:
             pickle.dump(lam_list, f)
@@ -218,12 +295,12 @@ if args.npvi:
 
     # create initial theta and sample
     npvi = vi.NPVI(lnpdf, D=D)
-    mu, s2, elbo_vals, theta = npvi.run(theta0.copy(), verbose=False)
+    mu, s2, elbo_vals, theta = npvi.run(theta0.copy(), niter=1000, verbose=False, path=args.output)
     print elbo_vals
 
     # save output here
-    npvi_outfile = os.path.join(args.output, "npvi_%d-comp.npy"%args.ncomp)
-    np.save(npvi_outfile, theta)
+    npvi_outfile = os.path.join(args.output, "npvi_%d-comp.npz"%args.ncomp)
+    np.savez(npvi_outfile, theta, mu, s2)
 
 
 #########################################
@@ -255,10 +332,151 @@ if args.mcmc:
         nuts_dict = {'chain': chain, 'lls': lls, 'cum_ll_evals': cum_ll_evals}
 
     elif args.model == "frisk":
-        nuts      = sampyl.NUTS(lnpdf, start={"th": np.random.randn(D)*.1})
-        chain     = nuts.sample(args.mcmc_nsamps, burn=0, callback=None)
-        lls       = np.array([ lnpdf(*c) for c in chain ])
-        nuts_dict = {'chain': chain, 'lls': lls}
+        nuts = sampyl.NUTS(lnpdf, start={"th": np.random.randn(D) * .1})
+        chain = []
+        n_fevals = []
+        start = time()
+        timestamps = []
+        n_samps_per_iter = 1000
+        while len(chain) * n_samps_per_iter < args.mcmc_nsamps:
+            if args.mcmc_nsamps > len(chain) + n_samps_per_iter:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(n_samps_per_iter, burn=0)]))
+            else:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(args.mcmc_nsamps - len(chain) * n_samps_per_iter, burn=0)]))
+            timestamps.append(time() - start)
+            n_fevals.append(lnpdf.counter)
+            np.savez(args.model + args.progressDir + "NUTS_" + str(len(chain)*n_samps_per_iter ) + "of" + str(args.mcmc_nsamps) + ".npz",
+                     samples=np.array(chain), fevals=np.array(n_fevals),
+                     timestamps=np.array(timestamps))
+        np.savez(args.model + args.progressDir + "NUTS_" + str(args.mcmc_nsamps) + "processed_data.npz",
+                 samples=np.array(chain),
+                 fevals=np.array(n_fevals), timestamps=np.array(timestamps))
+        nuts_dict = {'chain': chain}
+
+    elif args.model == "planarRobot_10":
+        conf_likelihood_var = 4e-2 * np.ones(10)
+        conf_likelihood_var[0] = 1
+        from scipy.stats import multivariate_normal
+        x0 = multivariate_normal(np.zeros(10), conf_likelihood_var * np.eye(10)).rvs(1)
+        nuts = sampyl.NUTS(lnpdf, start={"theta": x0})
+        chain = []
+        n_fevals = []
+        start = time()
+        timestamps = []
+        n_samps_per_iter = 100
+        while len(chain) * n_samps_per_iter < args.mcmc_nsamps:
+            if args.mcmc_nsamps > len(chain) + n_samps_per_iter:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(n_samps_per_iter, burn=0)]))
+            else:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(args.mcmc_nsamps - len(chain) * n_samps_per_iter, burn=0)]))
+            timestamps.append(time() - start)
+            n_fevals.append(lnpdf.counter)
+            np.savez(args.model + args.progressDir + "NUTS_" + str(len(chain)*n_samps_per_iter ) + "of" + str(args.mcmc_nsamps) + ".npz",
+                     samples=np.array(chain), fevals=np.array(n_fevals),
+                     timestamps=np.array(timestamps))
+        np.savez(args.model + args.progressDir + "NUTS_" + str(args.mcmc_nsamps) + "processed_data.npz",
+                 samples=np.array(chain),
+                 fevals=np.array(n_fevals), timestamps=np.array(timestamps))
+        #   lls       = np.array([ lnpdf_grad(*c) for c in chain ])
+        nuts_dict = {'chain': chain}
+        nuts_dict = {'chain': chain}
+
+    elif args.model == "planarRobot_3":
+        conf_likelihood_var = 4e-2 * np.ones(3)
+        conf_likelihood_var[0] = 1
+        from scipy.stats import multivariate_normal
+        x0 = multivariate_normal(np.zeros(3), conf_likelihood_var * np.eye(3)).rvs(1)
+        start = time()
+        timestamps = []
+        n_fevals = []
+        chain = np.empty((0,D))
+        nuts = sampyl.NUTS(lnpdf, start={"theta": x0})
+        chain = []
+        n_samps_per_iter = 1000
+        while len(chain) * n_samps_per_iter < args.mcmc_nsamps:
+            if args.mcmc_nsamps > len(chain) + n_samps_per_iter:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(n_samps_per_iter, burn=0)]))
+            else:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(args.mcmc_nsamps - len(chain) * n_samps_per_iter, burn=0)]))
+            timestamps.append(time() - start)
+            n_fevals.append(lnpdf.counter)
+            np.savez(args.model + args.progressDir + "NUTS_" + str(len(chain)*n_samps_per_iter ) + "of" + str(args.mcmc_nsamps) + ".npz",
+                     samples=np.array(chain), fevals=np.array(n_fevals),
+                     timestamps = np.array(timestamps))
+        np.savez(args.model + args.progressDir + "NUTS_" + str(args.mcmc_nsamps) +  "processed_data.npz", samples=np.array(chain),
+                 fevals=np.array(n_fevals), timestamps=np.array(timestamps))
+        #   lls       = np.array([ lnpdf_grad(*c) for c in chain ])
+        nuts_dict = {'chain': chain}
+        nuts_dict = {'chain': chain}
+    elif args.model == "GMM_2" or args.model == "GMM_20":
+        from scipy.stats import multivariate_normal
+        x0 = multivariate_normal(np.zeros(D), 1e3 * np.eye(D)).rvs(1)
+        start = time()
+        timestamps = []
+        chain = np.empty((0,D))
+        nuts = sampyl.NUTS(lnpdf, start={"theta": x0})
+        chain = []
+        n_samps_per_iter = 1000
+        while len(chain) * n_samps_per_iter < args.mcmc_nsamps:
+            if args.mcmc_nsamps > len(chain) + n_samps_per_iter:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(n_samps_per_iter, burn=0)]))
+            else:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(args.mcmc_nsamps - len(chain)*n_samps_per_iter, burn=0)]))
+            timestamps.append(time() - start)
+            np.savez(args.model + args.progressDir + "NUTS_" + str(len(chain)*n_samps_per_iter ) + "of" + str(args.mcmc_nsamps) + ".npz",
+                     samples=np.array(chain), fevals=lnpdf.counter,
+                     walltime=timestamps)
+        np.savez(args.model + args.progressDir + "NUTS_" + str(args.mcmc_nsamps) + ".npz", samples=np.array(chain),
+                 fevals=lnpdf.counter, timestamps=timestamps)
+        #   lls       = np.array([ lnpdf_grad(*c) for c in chain ])
+        nuts_dict = {'chain': chain}
+        nuts_dict = {'chain': chain}
+    elif args.model == "breast_cancer":
+        chain = []
+        start = time()
+        timestamps = []
+        n_fevals = []
+        nuts      = sampyl.NUTS(lnpdf, start={"theta": np.random.randn(D)*.1})
+        n_samps_per_iter = 100
+        while len(chain)*n_samps_per_iter < args.mcmc_nsamps:
+            if args.mcmc_nsamps > len(chain) + n_samps_per_iter:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(n_samps_per_iter, burn=0)]))
+            else:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(args.mcmc_nsamps - len(chain)*n_samps_per_iter, burn=0)]))
+            timestamps.append(time() - start)
+            n_fevals.append(lnpdf.counter)
+            np.savez(args.model + args.progressDir + "NUTS_" + str(len(chain)*n_samps_per_iter ) + "of" + str(args.mcmc_nsamps) + ".npz",
+                     samples=np.array(chain), fevals=np.array(n_fevals),
+                     timestamps=np.array(timestamps))
+        np.savez(args.model + args.progressDir + "NUTS_" + str(args.mcmc_nsamps) + "processed_data.npz",
+                 samples=np.array(chain),
+                 fevals=np.array(n_fevals), timestamps=np.array(timestamps))
+        nuts_dict = {'chain': chain}
+    elif args.model == "iono":
+        from experiments.lnpdfs.create_target_lnpfs import build_GPR_iono_with_grad_lnpdf_no_autograd
+        lnpdf_tmp = build_GPR_iono_with_grad_lnpdf_no_autograd()
+        def lnpdf_grad(theta):
+            return lnpdf_tmp(theta)
+        chain = []
+        start = time()
+        timestamps = []
+        n_fevals = []
+        nuts      = sampyl.NUTS(lnpdf_grad, grad_logp=True, start={"theta": np.random.randn(D)*.1})
+        n_samps_per_iter = 100
+        while len(chain)*n_samps_per_iter < args.mcmc_nsamps:
+            if args.mcmc_nsamps > len(chain) + n_samps_per_iter:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(n_samps_per_iter, burn=0)]))
+            else:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(args.mcmc_nsamps - len(chain)*n_samps_per_iter, burn=0)]))
+            timestamps.append(time() - start)
+            n_fevals.append(lnpdf.counter)
+            np.savez(args.model + args.progressDir + "NUTS_" + str(len(chain)*n_samps_per_iter ) + "of" + str(args.mcmc_nsamps) + ".npz",
+                     samples=np.array(chain), fevals=np.array(n_fevals),
+                     timestamps=np.array(timestamps))
+        np.savez(args.model + args.progressDir + "NUTS_" + str(args.mcmc_nsamps) + "processed_data.npz",
+                 samples=np.array(chain),
+                 fevals=np.array(n_fevals), timestamps=np.array(timestamps))
+        nuts_dict = {'chain': chain}
 
     mcmc_file = os.path.join(args.output, 'mcmc.pkl')
     with open(mcmc_file, 'wb') as f:
