@@ -1,10 +1,9 @@
-from sklearn.mixture import GMM
 import numpy as np
-import numpy.random as npr
-from . import mog, components, misc
-from . import mixtures as mix
 import scipy.misc as scpm
+from sklearn.mixture import GMM
 
+from . import mixtures as mix
+from . import mog, components, misc
 
 DEBUG_I, DEBUG_J = 0, 1
 
@@ -432,7 +431,6 @@ if __name__=="__main__":
 
     # test higher level method
     import matplotlib.pyplot as plt; plt.ion()
-    import seaborn as sns
     import autil.util.plots as pu
     fig, ax = plt.figure(figsize=(8,8)), plt.gca()
     pu.plot_isocontours(ax, lambda x: np.exp(lnpdf(x,0)), fill=True)
@@ -446,7 +444,7 @@ if __name__=="__main__":
 
     # look at the true ratio everywhere
     fig, ax = plt.figure(figsize=(8,8)), plt.gca()
-    single_dist = mog.MixtureOfGaussians(means[:1,:], covars[:1,:,:], np.array([1.]))
+    single_dist = mog.MixtureOfGaussians(means[:1, :], covars[:1, :, :], np.array([1.]))
     lnratio = lambda x: np.exp(lnpdf(x, 0) - single_dist.logpdf(x))
     cim = pu.plot_isocontours(ax, lnratio, fill=True)
     fig.colorbar(cim)
