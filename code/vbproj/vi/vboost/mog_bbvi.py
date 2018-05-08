@@ -1,12 +1,12 @@
 import autograd.numpy as np
 from autograd import grad
-from .optimizers import sgd, adam
 from scipy import optimize
-from . import mixtures as mix
+
+from . import iw_mixture
 from . import normal_bbvi, mog, components, lowr_mvn
 from .misc import logit, sigmoid, simplex_to_unconstrained, \
-                                  unconstrained_to_simplex
-from . import iw_mixture
+    unconstrained_to_simplex
+from .optimizers import sgd, adam
 
 
 class MixtureVI:
@@ -393,7 +393,7 @@ def make_mixture_elbo(lntarget, comp_list, new_rank,
 
         lnpi   = lntarget(samples, i)
         lnCp   = lnpdf_Cplus(samples, th)
-        Cpterm = np.mean(lntarget(samples, i) - lnpdf_Cplus(samples, th))
+        Cpterm = np.mean(lnpi - lnCp)
 
         # compute mixing
         return (1. - prob_new) * Cterm + prob_new * Cpterm
