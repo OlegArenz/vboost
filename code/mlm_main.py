@@ -12,7 +12,7 @@ for separate, model-specific plotting scripts.
 import argparse, os
 parser = argparse.ArgumentParser(
     description="Run vboost, mcmc, and npvi on two hierarchical models")
-parser.add_argument('-model', type=str, default='frisk', help="frisk|baseball|planarRobot")
+parser.add_argument('-model', type=str, default='frisk', help="frisk|baseball|planarRobot|planarRobot4p_10")
 
 parser.add_argument('-progressDir', type=str, default='progress_dir', help="progress_dir")
 
@@ -82,6 +82,10 @@ def make_model(model_name):
     elif model_name == "planarRobot_10":
         from experiments.lnpdfs.create_target_lnpfs import build_target_likelihood_planar_autograd
         lnpdf = build_target_likelihood_planar_autograd(10)[0]
+        return lnpdf, 10, None
+    elif model_name == "planarRobot4p_10":
+        from experiments.lnpdfs.create_target_lnpfs import build_target_likelihood_planar_4p_autograd
+        lnpdf = build_target_likelihood_planar_4p_autograd(10)[0]
         return lnpdf, 10, None
     elif model_name == "GMM_20":
         from experiments.lnpdfs.create_target_lnpfs import build_GMM_lnpdf_autograd
@@ -354,6 +358,34 @@ if args.mcmc:
         nuts_dict = {'chain': chain}
 
     elif args.model == "planarRobot_10":
+        conf_likelihood_var = 4e-2 * np.ones(10)
+        conf_likelihood_var[0] = 1
+        from scipy.stats import multivariate_normal
+        x0 = multivariate_normal(np.zeros(10), conf_likelihood_var * np.eye(10)).rvs(1)
+        nuts = sampyl.NUTS(lnpdf, start={"theta": x0})
+        chain = []
+        n_fevals = []
+        start = time()
+        timestamps = []
+        n_samps_per_iter = 100
+        while len(chain) * n_samps_per_iter < args.mcmc_nsamps:
+            if args.mcmc_nsamps > len(chain) + n_samps_per_iter:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(n_samps_per_iter, burn=0)]))
+            else:
+                chain.append(np.vstack([samp[0] for samp in nuts.sample(args.mcmc_nsamps - len(chain) * n_samps_per_iter, burn=0)]))
+            timestamps.append(time() - start)
+            n_fevals.append(lnpdf.counter)
+            np.savez(args.model + args.progressDir + "NUTS_" + str(len(chain)*n_samps_per_iter ) + "of" + str(args.mcmc_nsamps) + ".npz",
+                     samples=np.array(chain), fevals=np.array(n_fevals),
+                     timestamps=np.array(timestamps))
+        np.savez(args.model + args.progressDir + "NUTS_" + str(args.mcmc_nsamps) + "processed_data.npz",
+                 samples=np.array(chain),
+                 fevals=np.array(n_fevals), timestamps=np.array(timestamps))
+        #   lls       = np.array([ lnpdf_grad(*c) for c in chain ])
+        nuts_dict = {'chain': chain}
+        nuts_dict = {'chain': chain}
+
+    elif args.model == "planarRobot4p_10":
         conf_likelihood_var = 4e-2 * np.ones(10)
         conf_likelihood_var[0] = 1
         from scipy.stats import multivariate_normal
