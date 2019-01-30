@@ -12,11 +12,11 @@
 #SBATCH -t 2-00:00:00     # in Stunden, Minuten und Sekunden, oder '#SBATCH -t 10' - nur Minuten
 
 
-srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model german_credit -rank 10 -vboost -progressDir _output/rank10/seed5/ -seed 5 &
-srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model german_credit -rank 10 -vboost -progressDir _output/rank10/seed6/ -seed 6 &
-srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model german_credit -rank 10 -vboost -progressDir _output/rank10/seed7/ -seed 7 &
-srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model german_credit -rank 10 -vboost -progressDir _output/rank10/seed8/ -seed 8 &
-srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model german_credit -rank 10 -vboost -progressDir _output/rank10/seed9/ -seed 9 &
+srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model german_credit -rank 5 -vboost -progressDir _output/rank5/seed5/ -seed 5 &
+srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model german_credit -rank 5 -vboost -progressDir _output/rank5/seed6/ -seed 6 &
+srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model german_credit -rank 5 -vboost -progressDir _output/rank5/seed7/ -seed 7 &
+srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model german_credit -rank 5 -vboost -progressDir _output/rank5/seed8/ -seed 8 &
+srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model german_credit -rank 5 -vboost -progressDir _output/rank5/seed9/ -seed 9 &
 
 
 wait
