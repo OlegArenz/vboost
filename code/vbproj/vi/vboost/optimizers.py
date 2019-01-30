@@ -7,7 +7,7 @@ objects, such as dicts of numpy arrays."""
 from __future__ import absolute_import
 
 import autograd.numpy as np
-from autograd.util import flatten_func
+from autograd.misc.flatten import flatten_func
 from builtins import range
 from scipy.optimize import line_search
 
