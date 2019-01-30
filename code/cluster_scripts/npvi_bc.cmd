@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -A project00490
+#SBATCH -A project00790
 #SBATCH -J npvi_bc
 #SBATCH --mail-type=ALL
 # Bitte achten Sie auf vollständige Pfad-Angaben:
@@ -11,11 +11,11 @@
 #SBATCH --mem-per-cpu=1024   # Hauptspeicher pro Rechenkern in MByte
 #SBATCH -t 2-00:00:00     # in Stunden, Minuten und Sekunden, oder '#SBATCH -t 10' - nur Minuten
 
-srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model breast_cancer -npvi -progressDir _output/npvi/seed0/ -seed 0 &
-srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model breast_cancer -npvi -progressDir _output/npvi/seed1/ -seed 1 &
-srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model breast_cancer -npvi -progressDir _output/npvi/seed2/ -seed 2 &
-srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model breast_cancer -npvi -progressDir _output/npvi/seed3/ -seed 3 &
-srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model breast_cancer -npvi -progressDir _output/npvi/seed4/ -seed 4 &
+srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model breast_cancer -npvi -progressDir _output/npvi/seed5/ -seed 5 &
+srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model breast_cancer -npvi -progressDir _output/npvi/seed6/ -seed 6 &
+srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model breast_cancer -npvi -progressDir _output/npvi/seed7/ -seed 7 &
+srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model breast_cancer -npvi -progressDir _output/npvi/seed8/ -seed 8 &
+srun -N1 -n1 --time=2-00:00:00 --mem-per-cpu=1024 python2.7 mlm_main.py -model breast_cancer -npvi -progressDir _output/npvi/seed9/ -seed 9 &
 
 
 
